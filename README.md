@@ -14,8 +14,6 @@ cd ComfyUI/custom_nodes
 git clone https://github.com/gitadmini/comfyui_small_tool.git
 cd comfyui_small_tool
 pip install -r requirements.txt
-# 如果是便携版 linux
-../../../python_embeded/python -m pip install -r requirements.txt
 # 如果是便携版 windows
 ..\..\..\python_embeded\python -m pip install -r requirements.txt
 ```
