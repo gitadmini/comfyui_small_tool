@@ -1,0 +1,11 @@
+# 修改语速依赖
+audiostretchy[all]
+pydub
+numpy
+
+
+
+
+
+
+
