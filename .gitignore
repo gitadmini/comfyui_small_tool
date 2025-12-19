@@ -10,7 +10,6 @@ __pycache__/
 audio_learn.ipynb
 # C extensions
 *.so
-readme.md
 # Distribution / packaging
 .Python
 build/
