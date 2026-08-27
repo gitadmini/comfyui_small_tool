@@ -2,7 +2,6 @@ import os
 import re
 import json
 import base64
-import mimetypes
 import subprocess
 import urllib.request
 import urllib.error
@@ -42,21 +41,23 @@ class OllamaPathChat:
                 "ollama_url": (
                     "STRING",
                     {
-                        "default": "http://127.0.0.1:11434",
+                        "default":
+                            "http://127.0.0.1:11434",
                     },
                 ),
 
                 "ollama_path": (
                     "STRING",
                     {
-                        "default": "/opt/ollama/ollama",
+                        "default":
+                            "/opt/ollama/ollama",
                     },
                 ),
 
                 "timeout": (
                     "INT",
                     {
-                        "default": 600,
+                        "default": 1800,
                         "min": 10,
                         "max": 7200,
                         "step": 10,
@@ -76,7 +77,7 @@ class OllamaPathChat:
     OUTPUT_NODE = False
 
     # =========================================================
-    # 主函数
+    # Chat
     # =========================================================
 
     def chat(
@@ -86,7 +87,7 @@ class OllamaPathChat:
             cache_model="是",
             ollama_url="http://127.0.0.1:11434",
             ollama_path="/opt/ollama/ollama",
-            timeout=600,
+            timeout=1800,
     ):
 
         if not prompt or not prompt.strip():
@@ -102,38 +103,81 @@ class OllamaPathChat:
         print(f"Model       : {model}")
         print(f"Cache Model : {cache_model}")
         print(f"Ollama URL  : {ollama_url}")
-        print(f"Ollama Path : {ollama_path}")
 
         # =====================================================
-        # 查找 Prompt 中的媒体文件
+        # 查找 Prompt 中的图片
         # =====================================================
 
         media_paths = self.extract_media_paths(prompt)
 
+        image_data = []
+
         if media_paths:
 
             print()
-            print("Detected media files:")
+            print("Detected files:")
 
             for path in media_paths:
 
-                if os.path.isfile(path):
+                print(f"  {path}")
 
-                    size = os.path.getsize(path)
+                if not os.path.isfile(path):
 
                     print(
-                        f"  {path} "
-                        f"({size / 1024 / 1024:.2f} MB)"
+                        "  [WARNING] File not found"
                     )
 
-                else:
+                    continue
+
+                # -------------------------------------------------
+                # 图片
+                # -------------------------------------------------
+
+                if self.is_image(path):
+
+                    try:
+
+                        with open(
+                                path,
+                                "rb"
+                        ) as f:
+
+                            encoded = base64.b64encode(
+                                f.read()
+                            ).decode("utf-8")
+
+                        image_data.append(
+                            encoded
+                        )
+
+                        print(
+                            "  [Image] Added"
+                        )
+
+                    except Exception as e:
+
+                        print(
+                            f"  [Image] Failed: {e}"
+                        )
+
+                # -------------------------------------------------
+                # 视频
+                # -------------------------------------------------
+
+                elif self.is_video(path):
 
                     print(
-                        f"  [NOT FOUND] {path}"
+                        "  [Video] Detected"
+                    )
+
+                    print(
+                        "  [Video] "
+                        "Standard Ollama /api/chat "
+                        "does not directly accept video."
                     )
 
         # =====================================================
-        # 构建 messages
+        # Message
         # =====================================================
 
         message = {
@@ -142,63 +186,35 @@ class OllamaPathChat:
         }
 
         # =====================================================
-        # 对图片进行 Ollama Vision API 处理
-        #
-        # 注意：
-        #
-        # Ollama /api/chat 对 vision 模型通常要求：
-        #
-        # {
-        #   "role": "user",
-        #   "content": "...",
-        #   "images": ["base64..."]
-        # }
-        #
-        # 如果 Qwen3.8 模型支持 vision，则把图片
-        # 自动转换为 base64。
+        # Vision
         # =====================================================
-
-        image_data = []
-
-        for path in media_paths:
-
-            if not os.path.isfile(path):
-                continue
-
-            if self.is_image(path):
-
-                try:
-
-                    with open(
-                            path,
-                            "rb"
-                    ) as f:
-
-                        encoded = base64.b64encode(
-                            f.read()
-                        ).decode("utf-8")
-
-                    image_data.append(
-                        encoded
-                    )
-
-                    print(
-                        f"[Image] Added: {path}"
-                    )
-
-                except Exception as e:
-
-                    print(
-                        f"[Image] Failed: "
-                        f"{path} -> {e}"
-                    )
 
         if image_data:
 
             message["images"] = image_data
 
+            print(
+                f"Images sent to Ollama: "
+                f"{len(image_data)}"
+            )
+
         # =====================================================
-        # 请求 JSON
+        # keep_alive
+        #
+        # 是  -> -1
+        # 否  -> 0
+        # =====================================================
+
+        if cache_model == "是":
+
+            keep_alive = -1
+
+        else:
+
+            keep_alive = 0
+
+        # =====================================================
+        # Request
         # =====================================================
 
         request_data = {
@@ -210,37 +226,21 @@ class OllamaPathChat:
 
             "stream": False,
 
-            "keep_alive": (
-                -1
-                if cache_model == "是"
-                else 0
-            ),
+            "keep_alive": keep_alive,
         }
 
-        # =====================================================
-        # 打印请求信息
-        # =====================================================
-
         print()
-        print("Sending request to Ollama...")
-
         print(
-            f"Endpoint: "
+            "POST "
             f"{ollama_url}/api/chat"
         )
 
         print(
-            f"Images: "
-            f"{len(image_data)}"
-        )
-
-        print(
-            f"Keep Alive: "
-            f"{request_data['keep_alive']}"
+            f"keep_alive = {keep_alive}"
         )
 
         # =====================================================
-        # 调用 /api/chat
+        # API
         # =====================================================
 
         try:
@@ -252,7 +252,7 @@ class OllamaPathChat:
             )
 
             # =================================================
-            # 解析 JSON
+            # API error
             # =================================================
 
             if not isinstance(
@@ -261,23 +261,19 @@ class OllamaPathChat:
             ):
 
                 return (
-                    "Invalid Ollama response:\n"
-                    + str(response),
+                    "Invalid Ollama API response.",
                 )
-
-            # =================================================
-            # Ollama API Error
-            # =================================================
 
             if "error" in response:
 
                 error = response.get(
                     "error",
-                    "Unknown Ollama error"
+                    "Unknown error"
                 )
 
                 print(
-                    f"[Ollama Error] {error}"
+                    f"[Ollama API Error] "
+                    f"{error}"
                 )
 
                 return (
@@ -286,22 +282,43 @@ class OllamaPathChat:
                 )
 
             # =================================================
-            # 获取 message.content
+            # 获取 message
             # =================================================
 
-            message_data = response.get(
-                "message",
-                {}
+            message_response = response.get(
+                "message"
             )
 
             if not isinstance(
-                    message_data,
+                    message_response,
                     dict
             ):
 
-                message_data = {}
+                print(
+                    "[ERROR] "
+                    "message field not found"
+                )
 
-            result = message_data.get(
+                return (
+                    "Ollama response does not "
+                    "contain message.",
+                )
+
+            # =================================================
+            # 只获取 content
+            #
+            # 注意：
+            #
+            # 不读取：
+            #
+            # message["thinking"]
+            #
+            # 只读取：
+            #
+            # message["content"]
+            # =================================================
+
+            result = message_response.get(
                 "content",
                 ""
             )
@@ -310,83 +327,82 @@ class OllamaPathChat:
 
                 result = ""
 
-            result = str(result).strip()
+            result = str(
+                result
+            )
 
             # =================================================
-            # 清理最终文本
-            #
-            # HTTP API 正常情况下不会存在 ANSI，
-            # 这里作为保险。
+            # 最终清理
             # =================================================
 
             result = self.clean_result(
                 result
             )
 
-            # =================================================
-            # 输出统计信息
-            # =================================================
-
             print()
             print(
-                f"Response length: "
+                f"Result length: "
                 f"{len(result)}"
             )
 
-            if "done" in response:
-
-                print(
-                    f"Done: "
-                    f"{response.get('done')}"
-                )
+            # =================================================
+            # Token / 时间
+            # =================================================
 
             if "total_duration" in response:
 
-                duration = (
+                total_seconds = (
                         response["total_duration"]
                         / 1_000_000_000
                 )
 
                 print(
                     f"Total duration: "
-                    f"{duration:.2f}s"
+                    f"{total_seconds:.2f}s"
+                )
+
+            if "load_duration" in response:
+
+                load_seconds = (
+                        response["load_duration"]
+                        / 1_000_000_000
+                )
+
+                print(
+                    f"Load duration: "
+                    f"{load_seconds:.2f}s"
+                )
+
+            if "prompt_eval_count" in response:
+
+                print(
+                    f"Prompt tokens: "
+                    f"{response['prompt_eval_count']}"
                 )
 
             if "eval_count" in response:
 
                 print(
-                    f"Eval tokens: "
+                    f"Output tokens: "
                     f"{response['eval_count']}"
                 )
 
             # =================================================
-            # cache_model = 否
-            #
-            # keep_alive=0 已经要求 Ollama 立即卸载。
-            #
-            # 这里再执行一次 stop 作为保险。
+            # Cache
             # =================================================
 
-            if cache_model == "否":
+            if cache_model == "是":
 
-                print()
                 print(
-                    f"[Cache] Stopping model: "
-                    f"{model}"
-                )
-
-                self.stop_model(
-                    ollama_url,
-                    model,
-                    ollama_path,
+                    f"[Cache] "
+                    f"Model kept loaded: {model}"
                 )
 
             else:
 
-                print()
                 print(
-                    f"[Cache] Keep model loaded: "
-                    f"{model}"
+                    f"[Cache] "
+                    f"Model will be released: {model}"
                 )
 
             print()
@@ -398,13 +414,20 @@ class OllamaPathChat:
                 result,
             )
 
+        # =====================================================
+        # HTTP Error
+        # =====================================================
+
         except urllib.error.HTTPError as e:
 
             try:
 
-                error_body = e.read().decode(
-                    "utf-8",
-                    errors="replace"
+                error_body = (
+                    e.read()
+                        .decode(
+                        "utf-8",
+                        errors="replace"
+                    )
                 )
 
             except Exception:
@@ -412,24 +435,19 @@ class OllamaPathChat:
                 error_body = str(e)
 
             print(
-                f"[HTTP Error] "
-                f"{e.code}: "
+                f"[HTTP {e.code}] "
                 f"{error_body}"
             )
-
-            if cache_model == "否":
-
-                self.stop_model(
-                    ollama_url,
-                    model,
-                    ollama_path,
-                )
 
             return (
                 f"Ollama HTTP error "
                 f"{e.code}:\n"
                 f"{error_body}",
             )
+
+        # =====================================================
+        # Connection Error
+        # =====================================================
 
         except urllib.error.URLError as e:
 
@@ -438,38 +456,31 @@ class OllamaPathChat:
                 f"{e}"
             )
 
-            if cache_model == "否":
-
-                self.stop_model(
-                    ollama_url,
-                    model,
-                    ollama_path,
-                )
-
             return (
                 "Cannot connect to Ollama:\n"
                 f"{ollama_url}\n\n"
                 f"{e}",
             )
 
+        # =====================================================
+        # Timeout
+        # =====================================================
+
         except TimeoutError:
 
             print(
-                "[ERROR] Ollama request timeout"
+                "[ERROR] "
+                "Ollama request timeout"
             )
-
-            if cache_model == "否":
-
-                self.stop_model(
-                    ollama_url,
-                    model,
-                    ollama_path,
-                )
 
             return (
                 f"Ollama request timeout "
                 f"after {timeout} seconds.",
             )
+
+        # =====================================================
+        # Other
+        # =====================================================
 
         except Exception as e:
 
@@ -477,14 +488,6 @@ class OllamaPathChat:
                 "[Ollama Exception]",
                 repr(e)
             )
-
-            if cache_model == "否":
-
-                self.stop_model(
-                    ollama_url,
-                    model,
-                    ollama_path,
-                )
 
             return (
                 f"Ollama error:\n"
@@ -528,7 +531,9 @@ class OllamaPathChat:
                 timeout=timeout
         ) as response:
 
-            response_body = response.read()
+            response_body = (
+                response.read()
+            )
 
         text = response_body.decode(
             "utf-8",
@@ -540,166 +545,7 @@ class OllamaPathChat:
         )
 
     # =========================================================
-    # Stop Model
-    # =========================================================
-
-    @staticmethod
-    def stop_model(
-            ollama_url,
-            model,
-            ollama_path,
-    ):
-
-        # -----------------------------------------------------
-        # 第一种方式：
-        #
-        # Ollama API:
-        #
-        # /api/generate
-        #
-        # keep_alive=0
-        #
-        # 让模型立即卸载。
-        # -----------------------------------------------------
-
-        try:
-
-            data = {
-                "model": model,
-                "keep_alive": 0,
-            }
-
-            response = (
-                OllamaPathChat.http_post(
-                    f"{ollama_url}/api/generate",
-                    data,
-                    60,
-                )
-            )
-
-            print(
-                "[Ollama Stop API] "
-                f"Model released: {model}"
-            )
-
-            return True
-
-        except Exception as e:
-
-            print(
-                "[Ollama Stop API] Failed:",
-                repr(e)
-            )
-
-        # -----------------------------------------------------
-        # 第二种方式：
-        #
-        # 如果 API 方式失败，
-        # 使用本地 ollama stop。
-        # -----------------------------------------------------
-
-        try:
-
-            if not ollama_path:
-
-                return False
-
-            env = os.environ.copy()
-
-            env["TERM"] = "dumb"
-
-            env["NO_COLOR"] = "1"
-
-            env["CI"] = "1"
-
-            result = subprocess.run(
-                [
-                    ollama_path,
-                    "stop",
-                    model,
-                ],
-
-                stdout=subprocess.PIPE,
-
-                stderr=subprocess.STDOUT,
-
-                text=True,
-
-                encoding="utf-8",
-
-                errors="replace",
-
-                timeout=60,
-
-                env=env,
-            )
-
-            if result.returncode == 0:
-
-                print(
-                    "[Ollama Stop CLI] "
-                    f"Model stopped: {model}"
-                )
-
-                return True
-
-            print(
-                "[Ollama Stop CLI] "
-                f"Failed: {result.stdout}"
-            )
-
-        except Exception as e:
-
-            print(
-                "[Ollama Stop CLI] "
-                "Failed:",
-                repr(e)
-            )
-
-        return False
-
-    # =========================================================
-    # 判断图片
-    # =========================================================
-
-    @staticmethod
-    def is_image(path):
-
-        image_extensions = (
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp",
-            ".bmp",
-            ".gif",
-        )
-
-        return path.lower().endswith(
-            image_extensions
-        )
-
-    # =========================================================
-    # 判断视频
-    # =========================================================
-
-    @staticmethod
-    def is_video(path):
-
-        video_extensions = (
-            ".mp4",
-            ".mov",
-            ".mkv",
-            ".avi",
-            ".webm",
-            ".m4v",
-        )
-
-        return path.lower().endswith(
-            video_extensions
-        )
-
-    # =========================================================
-    # 提取媒体路径
+    # 提取文件路径
     # =========================================================
 
     @staticmethod
@@ -724,17 +570,9 @@ class OllamaPathChat:
 
         # =====================================================
         # Linux path
-        #
-        # 支持：
-        #
-        # /root/test/a.png
-        #
-        # "/root/test/a.png"
-        #
-        # '/root/test/a.png'
         # =====================================================
 
-        linux_pattern = re.compile(
+        pattern = re.compile(
             r"""
             (?:
                 "([^"]+)"
@@ -747,96 +585,92 @@ class OllamaPathChat:
             re.VERBOSE
         )
 
-        # =====================================================
-        # Windows path
-        # =====================================================
-
-        windows_pattern = re.compile(
-            r"""
-            (?:
-                "([^"]+)"
-                |
-                '([^']+)'
-                |
-                ([A-Za-z]:[\\/][^\s"'<>]+)
-            )
-            """,
-            re.VERBOSE
-        )
-
-        candidates = []
-
-        for match in linux_pattern.findall(
+        for match in pattern.findall(
                 prompt
         ):
 
-            candidates.extend(
-                [
-                    x
-                    for x in match
-                    if x
-                ]
-            )
+            candidates = [
+                x
+                for x in match
+                if x
+            ]
 
-        for match in windows_pattern.findall(
-                prompt
-        ):
+            for path in candidates:
 
-            candidates.extend(
-                [
-                    x
-                    for x in match
-                    if x
-                ]
-            )
+                path = path.strip()
 
-        # =====================================================
-        # 去重 + 验证
-        # =====================================================
-
-        for path in candidates:
-
-            path = path.strip()
-
-            path = path.rstrip(
-                ".,;:!?，。；：！？）》）"
-            )
-
-            if not path.lower().endswith(
-                    extensions
-            ):
-                continue
-
-            # -------------------------------------------------
-            # 这里只返回存在的文件
-            # -------------------------------------------------
-
-            if os.path.isfile(path):
-
-                real_path = os.path.abspath(
-                    path
+                path = path.rstrip(
+                    ".,;:!?，。；：！？）》）"
                 )
 
-                if real_path not in paths:
+                if not path.lower().endswith(
+                        extensions
+                ):
+                    continue
 
-                    paths.append(
-                        real_path
+                if os.path.isfile(path):
+
+                    path = os.path.abspath(
+                        path
                     )
+
+                    if path not in paths:
+
+                        paths.append(
+                            path
+                        )
 
         return paths
 
     # =========================================================
-    # 清理最终结果
+    # Image
+    # =========================================================
+
+    @staticmethod
+    def is_image(path):
+
+        return path.lower().endswith(
+            (
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".webp",
+                ".bmp",
+                ".gif",
+            )
+        )
+
+    # =========================================================
+    # Video
+    # =========================================================
+
+    @staticmethod
+    def is_video(path):
+
+        return path.lower().endswith(
+            (
+                ".mp4",
+                ".mov",
+                ".mkv",
+                ".avi",
+                ".webm",
+                ".m4v",
+            )
+        )
+
+    # =========================================================
+    # Clean result
     # =========================================================
 
     @staticmethod
     def clean_result(text):
 
         if not text:
+
             return ""
 
         # -----------------------------------------------------
-        # ANSI
+        # ANSI ESC
         # -----------------------------------------------------
 
         text = re.sub(
@@ -857,7 +691,7 @@ class OllamaPathChat:
         )
 
         # -----------------------------------------------------
-        # ASCII control chars
+        # 控制字符
         # -----------------------------------------------------
 
         text = re.sub(
@@ -867,35 +701,7 @@ class OllamaPathChat:
         )
 
         # -----------------------------------------------------
-        # spinner
-        # -----------------------------------------------------
-
-        text = re.sub(
-            r"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]",
-            "",
-            text
-        )
-
-        # -----------------------------------------------------
-        # Ollama CLI 日志
-        # -----------------------------------------------------
-
-        text = re.sub(
-            r"Added image\s+'.*?'",
-            "",
-            text,
-            flags=re.IGNORECASE
-        )
-
-        text = re.sub(
-            r"Added video\s+'.*?'",
-            "",
-            text,
-            flags=re.IGNORECASE
-        )
-
-        # -----------------------------------------------------
-        # 清理 CR
+        # CR
         # -----------------------------------------------------
 
         text = text.replace(
@@ -907,7 +713,7 @@ class OllamaPathChat:
 
 
 # =============================================================
-# 独立 Ollama Stop 节点
+# Ollama Stop Model
 # =============================================================
 
 class OllamaStopModel:
@@ -968,9 +774,7 @@ class OllamaStopModel:
             ollama_path="/opt/ollama/ollama",
     ):
 
-        ollama_url = (
-            ollama_url.rstrip("/")
-        )
+        ollama_url = ollama_url.rstrip("/")
 
         print()
         print("=" * 70)
@@ -978,38 +782,99 @@ class OllamaStopModel:
         print("=" * 70)
 
         print(
-            f"Model : {model}"
+            f"Model: {model}"
         )
 
-        print(
-            f"URL   : {ollama_url}"
-        )
+        # =====================================================
+        # 首选 HTTP API
+        #
+        # /api/generate
+        # keep_alive = 0
+        # =====================================================
 
-        success = (
-            OllamaPathChat.stop_model(
-                ollama_url,
-                model,
-                ollama_path,
-            )
-        )
+        try:
 
-        if success:
+            data = {
+                "model": model,
+                "keep_alive": 0,
+            }
 
-            status = (
-                f"Successfully stopped "
-                f"model: {model}"
-            )
-
-        else:
-
-            status = (
-                f"Failed to stop model: "
-                f"{model}"
+            response = (
+                OllamaPathChat.http_post(
+                    f"{ollama_url}/api/generate",
+                    data,
+                    60,
+                )
             )
 
-        print(status)
+            print(
+                f"[Ollama API] "
+                f"Model released: {model}"
+            )
 
-        return (
-            status,
-        )
+            return (
+                f"Successfully stopped: {model}",
+            )
+
+        except Exception as e:
+
+            print(
+                "[Ollama API Stop Failed]",
+                repr(e)
+            )
+
+        # =====================================================
+        # API 失败后使用 CLI
+        # =====================================================
+
+        try:
+
+            if (
+                    not ollama_path
+                    or not os.path.exists(ollama_path)
+            ):
+
+                return (
+                    f"Failed to stop model: "
+                    f"{model}",
+                )
+
+            result = subprocess.run(
+                [
+                    ollama_path,
+                    "stop",
+                    model,
+                ],
+
+                stdout=subprocess.PIPE,
+
+                stderr=subprocess.STDOUT,
+
+                text=True,
+
+                encoding="utf-8",
+
+                errors="replace",
+
+                timeout=60,
+            )
+
+            if result.returncode == 0:
+
+                return (
+                    f"Successfully stopped: "
+                    f"{model}",
+                )
+
+            return (
+                f"Failed to stop model:\n"
+                f"{result.stdout}",
+            )
+
+        except Exception as e:
+
+            return (
+                f"Stop model error:\n"
+                f"{e}",
+            )
 
