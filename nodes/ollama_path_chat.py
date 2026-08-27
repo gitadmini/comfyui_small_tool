@@ -35,7 +35,7 @@ class OllamaPathChat:
                 "ollama_path": (
                     "STRING",
                     {
-                        "default": "/root/ollama",
+                        "default": "/opt/ollama/ollama",
                     },
                 ),
                 "timeout": (
@@ -59,16 +59,12 @@ class OllamaPathChat:
 
     OUTPUT_NODE = False
 
-    # =========================================================
-    # Main
-    # =========================================================
-
     def chat(
             self,
             prompt,
             model,
             cache_model="是",
-            ollama_path="/root/ollama",
+            ollama_path="/opt/ollama/ollama",
             timeout=600,
     ):
 
@@ -80,58 +76,13 @@ class OllamaPathChat:
         if not executable:
             executable = "ollama"
 
-        print("\n")
-        print("=" * 70)
+        print("\n" + "=" * 70)
         print("Ollama Qwen3.8 Path Chat")
         print("=" * 70)
 
         print(f"Model       : {model}")
         print(f"Cache Model : {cache_model}")
         print(f"Ollama      : {executable}")
-        print(f"Prompt size : {len(prompt)}")
-
-        # =====================================================
-        # Detect local media paths
-        # =====================================================
-
-        media_paths = self.extract_media_paths(prompt)
-
-        if media_paths:
-
-            print("\nDetected media files:")
-
-            for path in media_paths:
-
-                print(f"  {path}")
-
-        else:
-
-            print("\nNo local media file detected.")
-
-        # =====================================================
-        # Check media files
-        # =====================================================
-
-        for path in media_paths:
-
-            if not os.path.isfile(path):
-
-                print(
-                    f"[WARNING] File does not exist: {path}"
-                )
-
-            else:
-
-                size = os.path.getsize(path)
-
-                print(
-                    f"[MEDIA] {path} "
-                    f"({size / 1024 / 1024:.2f} MB)"
-                )
-
-        # =====================================================
-        # Execute Ollama
-        # =====================================================
 
         command = [
             executable,
@@ -139,8 +90,6 @@ class OllamaPathChat:
             model,
             prompt,
         ]
-
-        print("\nStarting Ollama...")
 
         try:
 
@@ -155,10 +104,6 @@ class OllamaPathChat:
             )
 
             output_lines = []
-
-            # =================================================
-            # Read Ollama output
-            # =================================================
 
             def reader():
 
@@ -187,10 +132,6 @@ class OllamaPathChat:
 
             thread.start()
 
-            # =================================================
-            # Wait
-            # =================================================
-
             try:
 
                 process.wait(
@@ -199,13 +140,10 @@ class OllamaPathChat:
 
             except subprocess.TimeoutExpired:
 
-                print(
-                    "[ERROR] Ollama timeout"
-                )
+                print("[ERROR] Ollama timeout")
 
                 process.kill()
 
-                # 超时也尝试释放模型
                 if cache_model == "否":
                     self.unload_model(
                         executable,
@@ -223,10 +161,6 @@ class OllamaPathChat:
                 output_lines
             ).strip()
 
-            # =================================================
-            # Ollama execution failed
-            # =================================================
-
             if process.returncode != 0:
 
                 print(
@@ -234,10 +168,7 @@ class OllamaPathChat:
                     f"{process.returncode}"
                 )
 
-                # 即使执行失败，如果用户选择否，
-                # 也尝试释放模型
                 if cache_model == "否":
-
                     self.unload_model(
                         executable,
                         model
@@ -250,30 +181,17 @@ class OllamaPathChat:
                     f"{result}",
                 )
 
-            # =================================================
-            # Cache control
-            # =================================================
+            # -------------------------------------------------
+            # 缓存控制
+            # -------------------------------------------------
 
             if cache_model == "是":
-
-                # 不执行 ollama stop
-                #
-                # Ollama 会按照自己的 keep_alive
-                # 策略继续保持模型在内存中。
-
-                print(
-                    "\n[Cache] Model cache enabled."
-                )
 
                 print(
                     f"[Cache] Keep model loaded: {model}"
                 )
 
             else:
-
-                print(
-                    "\n[Cache] Model cache disabled."
-                )
 
                 print(
                     f"[Cache] Stopping model: {model}"
@@ -284,27 +202,12 @@ class OllamaPathChat:
                     model
                 )
 
-            print("\n")
-            print("=" * 70)
-            print("Ollama Finished")
-            print("=" * 70)
-
             return (
                 result,
             )
 
-        except FileNotFoundError:
-
-            return (
-                "Cannot find Ollama executable:\n"
-                f"{executable}\n\n"
-                "Please check ollama_path.",
-            )
-
         except Exception as e:
 
-            # 发生异常时，如果明确要求不缓存，
-            # 也尝试停止模型
             if cache_model == "否":
 
                 self.unload_model(
@@ -316,10 +219,6 @@ class OllamaPathChat:
                 f"Ollama error:\n"
                 f"{type(e).__name__}: {e}",
             )
-
-    # =========================================================
-    # Stop / unload model
-    # =========================================================
 
     @staticmethod
     def unload_model(
@@ -345,135 +244,184 @@ class OllamaPathChat:
 
             output = result.stdout or ""
 
-            print(
-                "[Cache] ollama stop:"
-            )
-
             if output.strip():
-
                 print(
+                    "[Ollama Stop]",
                     output.strip()
                 )
 
             if result.returncode == 0:
 
                 print(
-                    f"[Cache] Model stopped: {model}"
+                    f"[Ollama Stop] "
+                    f"Model stopped: {model}"
                 )
 
             else:
 
                 print(
-                    f"[Cache] Failed to stop model "
-                    f"(exit code {result.returncode})"
+                    f"[Ollama Stop] Failed "
+                    f"(exit code "
+                    f"{result.returncode})"
                 )
 
         except Exception as e:
 
             print(
-                "[Cache] Failed to unload model:",
+                "[Ollama Stop] Error:",
                 e
             )
 
-    # =========================================================
-    # Detect media paths
-    # =========================================================
 
-    @staticmethod
-    def extract_media_paths(prompt):
+class OllamaStopModel:
 
-        extensions = (
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp",
-            ".bmp",
-            ".gif",
-            ".mp4",
-            ".mov",
-            ".mkv",
-            ".avi",
-            ".webm",
-            ".m4v",
-        )
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": (
+                    "STRING",
+                    {
+                        "default": "qwen3.8:27b",
+                    },
+                ),
+            },
+            "optional": {
+                "ollama_path": (
+                    "STRING",
+                    {
+                        "default": "/opt/ollama/ollama",
+                    },
+                ),
+            },
+        }
 
-        paths = []
+    RETURN_TYPES = ("STRING",)
 
-        # -----------------------------------------------------
-        # Windows paths
-        # -----------------------------------------------------
+    RETURN_NAMES = ("status",)
 
-        windows_pattern = re.compile(
-            r'(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z]:[\\/][^\s"\']+))',
-            re.MULTILINE
-        )
+    FUNCTION = "stop"
 
-        # -----------------------------------------------------
-        # Linux paths
-        # -----------------------------------------------------
+    CATEGORY = "Ollama/Qwen3.8"
 
-        linux_pattern = re.compile(
-            r'(?:"([^"]+)"|\'([^\']+)\'|(/[^ \t\r\n"\']+))',
-            re.MULTILINE
-        )
+    OUTPUT_NODE = False
 
-        candidates = []
+    def stop(
+            self,
+            model,
+            ollama_path="/opt/ollama/ollama",
+    ):
 
-        for match in windows_pattern.findall(prompt):
+        executable = ollama_path.strip()
 
-            candidates.extend(
+        if not executable:
+            executable = "ollama"
+
+        print("\n" + "=" * 70)
+        print("Ollama Stop Model")
+        print("=" * 70)
+
+        print(f"Model    : {model}")
+        print(f"Ollama   : {executable}")
+
+        try:
+
+            result = subprocess.run(
                 [
-                    x
-                    for x in match
-                    if x
-                ]
+                    executable,
+                    "stop",
+                    model,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
             )
 
-        for match in linux_pattern.findall(prompt):
+            output = (
+                    result.stdout or ""
+            ).strip()
 
-            candidates.extend(
-                [
-                    x
-                    for x in match
-                    if x
-                ]
-            )
+            if result.returncode == 0:
 
-        # -----------------------------------------------------
-        # Validate paths
-        # -----------------------------------------------------
-
-        for path in candidates:
-
-            path = path.strip()
-
-            path = path.rstrip(
-                ".,;:!?，。；：！？）)"
-            )
-
-            lower = path.lower()
-
-            if not lower.endswith(
-                    extensions
-            ):
-                continue
-
-            if os.path.isfile(path):
-
-                real_path = os.path.abspath(
-                    path
+                status = (
+                    f"Successfully stopped "
+                    f"model: {model}"
                 )
 
-                if real_path not in paths:
+                print(
+                    f"[Ollama Stop] {status}"
+                )
 
-                    paths.append(
-                        real_path
-                    )
+                if output:
+                    print(output)
 
-        return paths
+                return (
+                    status,
+                )
 
+            else:
 
-# =============================================================
-# Node registration
-# =============================================================
+                status = (
+                    f"Failed to stop model "
+                    f"{model}, "
+                    f"exit code: "
+                    f"{result.returncode}\n"
+                    f"{output}"
+                )
+
+                print(
+                    f"[Ollama Stop] {status}"
+                )
+
+                return (
+                    status,
+                )
+
+        except FileNotFoundError:
+
+            status = (
+                f"Ollama executable not found: "
+                f"{executable}"
+            )
+
+            print(
+                f"[Ollama Stop] {status}"
+            )
+
+            return (
+                status,
+            )
+
+        except subprocess.TimeoutExpired:
+
+            status = (
+                f"Timeout while stopping "
+                f"model: {model}"
+            )
+
+            print(
+                f"[Ollama Stop] {status}"
+            )
+
+            return (
+                status,
+            )
+
+        except Exception as e:
+
+            status = (
+                f"Error stopping model: "
+                f"{type(e).__name__}: {e}"
+            )
+
+            print(
+                f"[Ollama Stop] {status}"
+            )
+
+            return (
+                status,
+            )
 
