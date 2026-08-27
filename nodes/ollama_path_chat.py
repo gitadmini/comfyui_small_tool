@@ -477,11 +477,3 @@ class OllamaPathChat:
 # Node registration
 # =============================================================
 
-NODE_CLASS_MAPPINGS = {
-    "OllamaPathChat": OllamaPathChat,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "OllamaPathChat":
-        "Ollama Qwen3.8 Path Chat",
-}
