@@ -6,9 +6,13 @@
 
 调用ollama qwen3.8的chat，可以在prompt中传文件地址，模型能够读取文件中内容。从而只输入一个字符串，就能让模型分析图片或者视频。
 
-缓存选择是，调用模型，完成后下次直接读取缓存。选择否，则调用ollama stop来停掉模型，达到释放缓存的目的，此时只是释放缓存，不再调用模型。
+例子：请按照下面要求给出提示词，图片为 "/root/ComfyUI/3.png", 视频为 "/root/ComfyUI/4.mp4"，要求1，要求2...
 
-需要事先本地安装ollama，并安装qwen38: /root/ollama run qwen3.8:latest
+缓存选择是，调用模型，完成后下次直接读取缓存。
+
+stop model 节点：执行释放显存
+
+需要事先本地安装ollama，并安装qwen38: /opt/ollama/ollama run qwen3.8:latest
 
 
 ## 说话声音变速
